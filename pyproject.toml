@@ -1,19 +1,24 @@
-[build-system]
-requires = ["setuptools>=61.0"]
-build-backend = "setuptools.build_meta"
-
 [project]
-name = "bolt"
+name = "bolt-cli"
 version = "0.1.0"
-description = "Our own pet AI Agent"
+description = "Autonomous Agent CLI Assistant"
 readme = "README.md"
-requires-python = ">=3.12"
+requires-python = ">=3.11"
 dependencies = [
-    "pydantic-ai>=2.38.0",
-    "python-dotenv>=1.2.3",
-    "rich>=15.0.0",
-    "typer>=0.27.2",
+    "typer>=0.12.0",
+    "rich>=13.7.0",
+    "pydantic>=2.7.0",
+    "pydantic-settings>=2.2.0",
+    "python-dotenv>=1.0.0",
+    "openai>=1.30.0",
 ]
 
 [project.scripts]
-bolt = "bolt.main:app"
+bolt = "bolt.cli.app:app"
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/bolt"]
