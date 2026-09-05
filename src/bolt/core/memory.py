@@ -1,0 +1,3 @@
+"""
+Compaction logic & scratchpad management
+"""

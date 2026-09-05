@@ -1,0 +1,3 @@
+"""
+Abstract session persistence repository
+"""
