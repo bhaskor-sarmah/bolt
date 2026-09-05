@@ -65,4 +65,4 @@ class ModelDriver(ABC):
         Typer/Rich CLI app to `async for chunk in driver.stream_generate(...)` and print 
         text to the screen instantly as the model types it out.
         """
-        pass
+        yield StreamChunk()
