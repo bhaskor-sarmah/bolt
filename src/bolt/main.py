@@ -9,10 +9,16 @@ from rich.console import Console
 from bolt.agent import agent
 
 # Create Typer app with help text
-app = typer.Typer(help="Autonomous CLI Assistant")
+app = typer.Typer(help="Autonomous CLI Assistant", no_args_is_help=False, epilog="An interactive session can be started by running the CLI without any commands.")
 # Create Rich console for styled terminal output
 console = Console()
 
+@app.callback(invoke_without_command=True)
+def main(ctx: typer.Context):
+    """Run the interactive REPL if no command is provided."""
+    # If a subcommand like 'do' wasn't invoked, start the REPL
+    if ctx.invoked_subcommand is None:
+        repl()
 
 @app.command()
 def do(task: str = typer.Argument(..., help="The instruction for the agent to execute")):
@@ -33,10 +39,35 @@ def do(task: str = typer.Argument(..., help="The instruction for the agent to ex
         # Display any errors that occur during agent execution
         console.print(f"[bold red]Error:[/bold red] {str(e)}")
 
-@app.command()
-def msg(greeting: str = "Hi"):
-    """Testing to say hi"""
-    console.print(f"[bold green] User saying {greeting}")
+def repl():
+    """Start an interactive REPL session"""
+    console.print("[bold green]Welcome to Bolt! Type 'exit' or 'quit' to stop.[/bold green]")
+    
+    while True:
+        try:
+            # Display the > prompt and get user input
+            task = console.input("[bold blue]>[/bold blue] ").strip()
+            
+            if not task:
+                continue
+                
+            if task.lower() in ("exit", "quit"):
+                break
+                
+            with console.status("[cyan]Agent is thinking...", spinner="dots"):
+                result = agent.run_sync(task)
+
+            console.print(f"[bold green]Result:[/bold green] {result.output}")
+            
+        except KeyboardInterrupt:
+            # Gracefully handle Ctrl+C
+            console.print("\n[yellow]Type 'exit' to quit or press Ctrl+D.[/yellow]")
+        except EOFError:
+            # Gracefully handle Ctrl+D
+            console.print()
+            break
+        except Exception as e:
+            console.print(f"[bold red]Error:[/bold red] {str(e)}")
 
 if __name__ == "__main__":
     # Run the Typer application when script is executed directly
