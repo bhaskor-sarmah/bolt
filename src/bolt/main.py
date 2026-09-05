@@ -7,11 +7,15 @@ accepts a task string and executes it using the autonomous agent.
 import typer
 from rich.console import Console
 from bolt.agent import agent
+from bolt.router.agent_router import AgentRouter
 
 # Create Typer app with help text
 app = typer.Typer(help="Autonomous CLI Assistant", no_args_is_help=False, epilog="An interactive session can be started by running the CLI without any commands.")
 # Create Rich console for styled terminal output
 console = Console()
+
+# Initialize the global router
+router = AgentRouter(console_instance=console, agent_instance=agent)
 
 @app.callback(invoke_without_command=True)
 def main(ctx: typer.Context):
@@ -30,7 +34,7 @@ def do(task: str = typer.Argument(..., help="The instruction for the agent to ex
         # Show a spinner in the terminal while the agent runs
         with console.status("[cyan]Agent is thinking...", spinner="dots"):
             # Execute the ReAct (Reasoning and Acting) loop
-            result = agent.run_sync(task)
+            result = router.run_task(task)
 
         # Print the final answer from the agent
         console.print(f"[bold green]Result:[/bold green] {result.output}")
@@ -55,7 +59,7 @@ def repl():
                 break
                 
             with console.status("[cyan]Agent is thinking...", spinner="dots"):
-                result = agent.run_sync(task)
+                result = router.run_task(task)
 
             console.print(f"[bold green]Result:[/bold green] {result.output}")
             
