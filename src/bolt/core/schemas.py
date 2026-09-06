@@ -110,4 +110,5 @@ class StreamChunk(BaseModel):
     Purpose: Prevents the CLI from freezing for 10 seconds while waiting for a long answer.
     """
     text_delta: Optional[str] = None # A few characters/words of the response as they stream in.
+    reasoning_delta: Optional[str] = None # (Advanced) Used if the model streams its internal reasoning step-by-step. Internal planning and logic (Chain-of-Thought).
     tool_call_delta: Optional[Dict[str, Any]] = None # (Advanced) Used if the model streams its tool arguments JSON chunk-by-chunk.

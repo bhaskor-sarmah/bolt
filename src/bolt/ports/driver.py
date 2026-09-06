@@ -8,7 +8,7 @@ Your core application will only ever talk to this interface, never to the adapte
 """
 
 from abc import ABC, abstractmethod
-from typing import List, Optional, AsyncIterator
+from typing import List, Optional, AsyncGenerator
 from bolt.core.schemas import Message, ToolDefinition, ModelResponse, StreamChunk
 
 class ModelDriver(ABC):
@@ -57,7 +57,7 @@ class ModelDriver(ABC):
         tools: Optional[List[ToolDefinition]] = None,
         temperature: float = 0.7,
         max_tokens: int = 1024,
-    ) -> AsyncIterator[StreamChunk]:
+    ) -> AsyncGenerator[StreamChunk, None]:
         """
         Executes a streaming completion.
         

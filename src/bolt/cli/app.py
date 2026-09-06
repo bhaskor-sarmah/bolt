@@ -6,11 +6,13 @@ Main entry point for the Bolt CLI.
 import asyncio
 import os
 import typer
+from contextlib import aclosing
 from dotenv import load_dotenv
 from rich.console import Console
 
 from bolt.adapters.providers.openai import OpenAIAdapter
 from bolt.core.schemas import SystemMessage, UserMessage
+from bolt.core.dispatcher import ResilientDispatcher
 
 # Load environment variables from the .env file
 load_dotenv()
@@ -51,23 +53,47 @@ def test_litellm(
         raise typer.Exit(code=1)
 
     async def run_chat():
-        driver = OpenAIAdapter(model_name=model, api_key=api_key, base_url=local_base_url)
+        
+        raw_driver = OpenAIAdapter(model_name=model, api_key=api_key, base_url=local_base_url)
+        
+        dispatcher = ResilientDispatcher(driver=raw_driver)
+        
         try:
             messages = [
                 SystemMessage(content="You are a senior systems engineer. Keep responses concise and technical."),
                 UserMessage(content=prompt)
             ]
 
-            console.print(f"[dim]Streaming response via LiteLLM ({model})...[/dim]\n")
+            console.print(f"[dim]Streaming response via Dispatcher ({model})...[/dim]\n")
             
-            async for chunk in driver.stream_generate(messages):
-                if chunk.text_delta:
-                    console.print(chunk.text_delta, end="")
+            in_thoughts = False
             
-            console.print("\n\n[bold green]✓ LiteLLM streaming complete.[/bold green]")
+            async with aclosing(dispatcher.stream_generate(messages, max_tokens=4096)) as stream:
+                async for chunk in stream:
+                    
+                    # 1. If we receive a reasoning token, style it dim and italic
+                    if chunk.reasoning_delta:
+                        if not in_thoughts:
+                            # Start formatting the thought block
+                            console.print("[dim italic]", end="")
+                            in_thoughts = True
+                            
+                        console.print(chunk.reasoning_delta, style="dim italic", end="")
+                        
+                    # 2. If we receive a standard text token, print it normally
+                    elif chunk.text_delta:
+                        if in_thoughts:
+                            # The model finished thinking! Transition the UI.
+                            console.print("\n\n[bold cyan]Final Answer:[/bold cyan]\n", end="")
+                            in_thoughts = False
+                            
+                        console.print(chunk.text_delta, end="")
+
+            # It prints a final newline so your zsh terminal resets cleanly.
+            console.print()
             
         finally:
-            await driver.close()
+            await dispatcher.close()
 
     asyncio.run(run_chat())
 

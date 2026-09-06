@@ -6,7 +6,7 @@ Implements the ModelDriver port to map our domain schemas to OpenAI's expected J
 """
 
 import json
-from typing import List, Optional, AsyncIterator, Dict, Any
+from typing import List, Optional, AsyncGenerator, Dict, Any
 from openai import AsyncOpenAI
 from openai.types.chat import ChatCompletion
 
@@ -149,7 +149,7 @@ class OpenAIAdapter(ModelDriver):
         tools: Optional[List[ToolDefinition]] = None,
         temperature: float = 0.7,
         max_tokens: int = 1024,
-    ) -> AsyncIterator[StreamChunk]:
+    ) -> AsyncGenerator[StreamChunk, None]:
         """Executes a streaming completion for the terminal UI."""
         
         kwargs = {
@@ -164,14 +164,22 @@ class OpenAIAdapter(ModelDriver):
             kwargs["tools"] = self._format_tools(tools)
 
         stream = await self.client.chat.completions.create(**kwargs)
-        
-        async for chunk in stream:
-            delta = chunk.choices[0].delta
-            
-            # OpenAI streaming tool calls are complex (they stream JSON fragments).
-            # For Phase 1, we focus on streaming text. Tool chunking comes later.
-            if delta.content is not None:
-                yield StreamChunk(text_delta=delta.content)
+
+        async with stream:
+            async for chunk in stream:
+                delta = chunk.choices[0].delta
+                
+                text_content = getattr(delta, "content", None)
+                
+                reasoning = getattr(delta, "reasoning_content", None) or getattr(delta, "reasoning", None)
+
+                # OpenAI streaming tool calls are complex (they stream JSON fragments).
+                # For Phase 1, we focus on streaming text. Tool chunking comes later.
+                if text_content or reasoning:
+                    yield StreamChunk(
+                        text_delta=text_content,
+                        reasoning_delta=reasoning
+                    )
 
 
     async def close(self) -> None:
