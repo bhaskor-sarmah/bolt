@@ -21,4 +21,4 @@
 
 ## Network rate limits and transient 502 Bad Gateway errors are the most common failures in LLM integration
 
-- Exponential Backoff. Instead of hammering the API immediately after a failure, we wait 1 second, then 2, then 4. More importantly, we add Jitter (randomness) so if 100 concurrent clients get rate-limited, they don't all retry at the exact same millisecond and accidentally DDoS the server.
+- Exponential Backoff. Instead of hammering the API immediately after a failure, we wait 1 second, then 2, then 4. More importantly, we add Jitter (randomness) so if 100 concurrent clients get rate-limited, they don't all retry at the exact same millisecond and accidentally DDoS the server. (the Thundering Herd problem)

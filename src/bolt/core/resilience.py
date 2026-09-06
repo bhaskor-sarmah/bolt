@@ -1,5 +1,6 @@
 import asyncio
 import logging
+import random
 from enum import Enum
 from typing import AsyncGenerator, Callable, Any, Awaitable
 
@@ -15,48 +16,84 @@ class CircuitBreakerOpenException(Exception):
     pass
 
 class CircuitBreaker:
-    def __init__(self, failure_threshold: int = 3, recovery_timeout: float = 30.0):
+    def __init__(self, 
+        failure_threshold: int = 3, 
+        recovery_timeout: float = 30.0,
+        max_retries: int = 3,         # How many times to retry before tripping
+        base_delay: float = 1.0,      # Starting delay in seconds
+        max_delay: float = 10.0       # Maximum allowed delay between retries
+        ):
         self.failure_threshold = failure_threshold
         self.recovery_timeout = recovery_timeout
-        
+        self.max_retries = max_retries
+        self.base_delay = base_delay
+        self.max_delay = max_delay
         self.state = CircuitState.CLOSED
         self.failures = 0
         self._lock = asyncio.Lock()
 
     async def call(self, func: Callable[..., Awaitable[Any]], *args, **kwargs) -> Any:
-        """Wraps an async function call with Circuit Breaker logic."""
-        async with self._lock:
-            if self.state == CircuitState.OPEN:
-                raise CircuitBreakerOpenException("Circuit is OPEN. Failing fast.")
+        """Standard async call with Backoff, Jitter, and Circuit Breaking."""
+        attempt = 0
+        
+        while attempt <= self.max_retries:
+            async with self._lock:
+                if self.state == CircuitState.OPEN:
+                    raise CircuitBreakerOpenException("Circuit is OPEN. Failing fast.")
 
-        try:
-            # Execute the actual API call
-            result = await func(*args, **kwargs)
-            await self._record_success()
-            return result
-            
-        except Exception as e:
-            await self._record_failure()
-            raise e
+            try:
+                result = await func(*args, **kwargs)
+                await self._record_success()
+                return result
+                
+            except Exception as e:
+                attempt += 1
+                if attempt > self.max_retries:
+                    await self._record_failure()
+                    raise e
+                    
+                await self._sleep_with_jitter(attempt)
 
-    async def stream_call(self, func: Callable[..., AsyncGenerator[Any, None]], *args, **kwargs) -> AsyncGenerator[Any, None]:
-        """Wraps an async generator with Circuit Breaker logic."""
-        async with self._lock:
-            if self.state == CircuitState.OPEN:
-                raise CircuitBreakerOpenException("Circuit is OPEN. Failing fast to protect system.")
-            
-        try:
-            # Iterate over the underlying stream
-            async for chunk in func(*args, **kwargs):
-                yield chunk
-            
-            # If the stream completes without raising an exception, it succeeded
-            await self._record_success()
-            
-        except Exception as e:
-            # If the stream drops halfway through or fails to connect, trip the circuit
-            await self._record_failure()
-            raise e
+    async def stream_call(
+        self, 
+        func: Callable[..., AsyncGenerator[Any, None]], 
+        *args, **kwargs
+    ) -> AsyncGenerator[Any, None]:
+        """Streaming async call with Backoff, Jitter, and Circuit Breaking."""
+        attempt = 0
+        
+        while attempt <= self.max_retries:
+            async with self._lock:
+                if self.state == CircuitState.OPEN:
+                    raise CircuitBreakerOpenException("Circuit is OPEN. Failing fast.")
+
+            try:
+                # In streaming, the API usually throws the 429 exactly here, 
+                # when the connection is first established.
+                async for chunk in func(*args, **kwargs):
+                    yield chunk
+                
+                await self._record_success()
+                return
+                
+            except Exception as e:
+                attempt += 1
+                if attempt > self.max_retries:
+                    await self._record_failure()
+                    raise e
+                    
+                await self._sleep_with_jitter(attempt)
+
+    async def _sleep_with_jitter(self, attempt: int):
+        """Calculates Exponential Backoff with 'Full Jitter' and sleeps."""
+        # Exponential backoff: 1s, 2s, 4s, 8s... capped by max_delay
+        delay = min(self.max_delay, self.base_delay * (2 ** (attempt - 1)))
+        
+        # Full Jitter: pick a random float between 0 and the delay
+        jittered_delay = random.uniform(0, delay)
+        
+        logger.warning(f"API failed. Retrying attempt {attempt}/{self.max_retries} in {jittered_delay:.2f}s...")
+        await asyncio.sleep(jittered_delay)
 
     async def _record_failure(self):
         async with self._lock:
