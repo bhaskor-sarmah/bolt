@@ -172,3 +172,8 @@ class OpenAIAdapter(ModelDriver):
             # For Phase 1, we focus on streaming text. Tool chunking comes later.
             if delta.content is not None:
                 yield StreamChunk(text_delta=delta.content)
+
+
+    async def close(self) -> None:
+        """Closes the underlying AsyncOpenAI HTTP connection pool."""
+        await self.client.close()

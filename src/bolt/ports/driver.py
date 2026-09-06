@@ -66,3 +66,11 @@ class ModelDriver(ABC):
         text to the screen instantly as the model types it out.
         """
         yield StreamChunk()
+
+    @abstractmethod
+    async def close(self) -> None:
+        """
+        Gracefully shuts down any underlying network clients, 
+        database connections, or connection pools.
+        """
+        pass
