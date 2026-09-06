@@ -20,5 +20,20 @@ bolt = "bolt.cli.app:app"
 requires = ["hatchling"]
 build-backend = "hatchling.build"
 
+[tool.pytest.ini_options]
+asyncio_mode = "auto"
+testpaths = ["tests"]
+markers = [
+    "integration: marks tests as slow or requiring a live local server (deselect with '-m \"not integration\"')",
+]
+
 [tool.hatch.build.targets.wheel]
 packages = ["src/bolt"]
+
+[dependency-groups]
+dev = [
+    "pytest>=9.1.1",
+    "pytest-asyncio>=1.4.0",
+    "pytest-cov>=7.1.0",
+    "pytest-mock>=3.15.1",
+]
