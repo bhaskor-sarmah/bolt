@@ -5,14 +5,21 @@ Main entry point for the Bolt CLI.
 """
 import asyncio
 import os
+from typing import List
+from rich.prompt import Prompt
 import typer
 from contextlib import aclosing
 from dotenv import load_dotenv
 from rich.console import Console
 
 from bolt.adapters.providers.openai import OpenAIAdapter
-from bolt.core.schemas import SystemMessage, UserMessage
+from bolt.adapters.tools.shell import ShellTool
+from bolt.core.fsm import ReActAgentFSM
+from bolt.core.policy import PolicyEngine
+from bolt.core.resilience import CircuitBreaker
+from bolt.core.schemas import Message, SystemMessage, UserMessage
 from bolt.core.dispatcher import ResilientDispatcher
+from bolt.core.toolregistry import ToolRegistry
 
 # Load environment variables from the .env file
 load_dotenv()
@@ -96,6 +103,84 @@ def test_litellm(
             await dispatcher.close()
 
     asyncio.run(run_chat())
+
+@app.command()
+def agent(
+    model: str = typer.Option(
+        os.getenv("LITELLM_MODEL", "openrouter/nvidia/nemotron-3.5-lightning:free"), 
+        "--model", "-m", help="The LiteLLM model to use (overrides .env)"
+    ),
+    max_steps: int = typer.Option(10, "--steps", "-s", help="Max FSM execution steps per prompt")
+):
+    """Starts the interactive ReAct agent REPL with tool execution."""
+    
+    local_base_url = os.getenv("LITELLM_BASE_URL", "http://localhost:4000/v1")
+    api_key = os.getenv("LITELLM_API_KEY")
+
+    if not api_key:
+        console.print("[bold red]Error:[/bold red] LITELLM_API_KEY not found in .env file.")
+        raise typer.Exit(code=1)
+
+    # 1. Initialize Phase 1: Driver & Dispatcher (Targeting LiteLLM)
+    driver = OpenAIAdapter(model_name=model, api_key=api_key, base_url=local_base_url)
+    circuit_breaker = CircuitBreaker()
+    dispatcher = ResilientDispatcher(driver=driver, circuit_breaker=circuit_breaker)
+
+    # 2. Initialize Phase 2: Tools & Registry
+    registry = ToolRegistry()
+    registry.register(ShellTool())
+
+    # 3. Initialize Phase 2: Policy Engine & FSM
+    policy = PolicyEngine()
+    fsm = ReActAgentFSM(
+        dispatcher=dispatcher,
+        registry=registry,
+        policy=policy,
+        max_steps=max_steps
+    )
+
+    async def _repl():
+        console.print("\n[bold green]⚡ Bolt Agent Initialized (Phase 2 FSM)[/bold green]")
+        console.print(f"[dim]Model: {model} | Max Steps: {max_steps} | Endpoint: {local_base_url}[/dim]")
+        console.print("[dim]Type 'exit' or 'quit' to end the session.[/dim]\n")
+        
+        # Give the agent its core identity
+        conversation: List[Message] = [
+            SystemMessage(content=(
+                "You are an expert CLI assistant running on a macOS environment. "
+                "You have access to a tool named 'run_shell_command'. "
+                "Use it to inspect the system, read files, and accomplish tasks. "
+                "If asked to check the OS, find the current directory, or list files, "
+                "immediately use the tool."
+            ))
+        ]
+
+        while True:
+            try:
+                user_input = Prompt.ask("\n[bold blue]You[/bold blue]")
+            except (KeyboardInterrupt, EOFError):
+                break
+                
+            if user_input.strip().lower() in ["exit", "quit"]:
+                break
+                
+            if not user_input.strip():
+                continue
+                
+            conversation.append(UserMessage(content=user_input))
+            
+            # Hand control to the Autonomous FSM
+            try:
+                # The FSM manages the tools and returns the updated conversation history
+                conversation = await fsm.run(conversation)
+            except Exception as e:
+                console.print(f"\n[bold red]System Error:[/bold red] {e}")
+
+        console.print("\n[bold yellow]Session ended. Goodbye![/bold yellow]")
+        await dispatcher.close()
+
+    # Bridge sync CLI to async core
+    asyncio.run(_repl())
 
 if __name__ == "__main__":
     app()

@@ -107,6 +107,9 @@ class OpenAIAdapter(ModelDriver):
         choice = raw_response.choices[0]
         openai_msg = choice.message
 
+        # Safely extract reasoning (LiteLLM/OpenRouter attach this for thinking models)
+        reasoning = getattr(openai_msg, "reasoning_content", None) or getattr(openai_msg, "reasoning", None)
+
         # Translate OpenAI's tool calls back to our domain schema
         domain_tool_calls = []
         if openai_msg.tool_calls:
@@ -124,6 +127,7 @@ class OpenAIAdapter(ModelDriver):
         # Build our domain AssistantMessage
         assistant_msg = AssistantMessage(
             content=openai_msg.content,
+            reasoning=reasoning,
             tool_calls=domain_tool_calls
         )
 
@@ -148,7 +152,7 @@ class OpenAIAdapter(ModelDriver):
         messages: List[Message],
         tools: Optional[List[ToolDefinition]] = None,
         temperature: float = 0.7,
-        max_tokens: int = 1024,
+        max_tokens: int = 4096,
     ) -> AsyncGenerator[StreamChunk, None]:
         """Executes a streaming completion for the terminal UI."""
         
@@ -162,23 +166,36 @@ class OpenAIAdapter(ModelDriver):
         
         if tools:
             kwargs["tools"] = self._format_tools(tools)
-
+            
         stream = await self.client.chat.completions.create(**kwargs)
-
+        
         async with stream:
             async for chunk in stream:
+                if not chunk.choices:
+                    continue
+                    
                 delta = chunk.choices[0].delta
                 
                 text_content = getattr(delta, "content", None)
-                
                 reasoning = getattr(delta, "reasoning_content", None) or getattr(delta, "reasoning", None)
-
-                # OpenAI streaming tool calls are complex (they stream JSON fragments).
-                # For Phase 1, we focus on streaming text. Tool chunking comes later.
-                if text_content or reasoning:
+                
+                # Extract streaming tool JSON fragments
+                tool_call_delta = None
+                if getattr(delta, "tool_calls", None):
+                    tc = delta.tool_calls[0]
+                    func = getattr(tc, "function", None)
+                    tool_call_delta = {
+                        "index": tc.index,
+                        "id": getattr(tc, "id", None),
+                        "name": getattr(func, "name", None) if func else None,
+                        "arguments": getattr(func, "arguments", None) if func else None
+                    }
+                    
+                if text_content or reasoning or tool_call_delta:
                     yield StreamChunk(
                         text_delta=text_content,
-                        reasoning_delta=reasoning
+                        reasoning_delta=reasoning,
+                        tool_call_delta=tool_call_delta
                     )
 
 

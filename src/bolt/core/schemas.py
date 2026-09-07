@@ -71,10 +71,11 @@ class UserMessage(Message):
 class AssistantMessage(Message):
     """
     The LLM's response.
-    Purpose: Needs to capture both the text it spoke AND any tools it decided to call.
     """
     role: Role = Role.ASSISTANT
-    tool_calls: Optional[List[ToolCall]] = Field(default_factory=list) # List of tools it wants us to run.
+    content: Optional[str] = None
+    reasoning: Optional[str] = None
+    tool_calls: List[ToolCall] = Field(default_factory=list)
 
 class ToolResultMessage(Message):
     """
