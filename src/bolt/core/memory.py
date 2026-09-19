@@ -7,17 +7,28 @@ from bolt.ports.driver import ModelDriver
 
 logger = logging.getLogger(__name__)
 
+from bolt.ports.storage import SessionStorage
+
 class MemoryManager:
     """
-    Tier 1 & Tier 2 Memory.
-    Manages the conversational scratchpad and compacts history when the token budget is near capacity.
+    Tier 1, Tier 2, and Tier 3 Memory.
+    Manages the conversational scratchpad, compacts history when the token budget is near capacity,
+    and persists it to the session storage.
     """
-    def __init__(self, budgeter: TokenBudgeter, driver: ModelDriver):
+    def __init__(self, budgeter: TokenBudgeter, driver: ModelDriver, session_id: str, storage: SessionStorage):
         self.budgeter = budgeter
         self.driver = driver
+        self.session_id = session_id
+        self.storage = storage
         self.system_prompt: Optional[SystemMessage] = None
         self.scratchpad: List[Message] = []
         self.compacted_history: Optional[AssistantMessage] = None
+
+    async def initialize(self):
+        """Loads existing compacted history from storage if available."""
+        self.compacted_history = await self.storage.load_session(self.session_id)
+        if self.compacted_history:
+            logger.info(f"Loaded existing session state for {self.session_id}")
 
     def set_system_prompt(self, content: str):
         self.system_prompt = SystemMessage(content=content)
@@ -104,8 +115,18 @@ Keep it factual and concise. Do not add conversational filler."""
             else:
                 self.scratchpad = []
 
+            # Save the new compacted history to Tier 3 storage
+            if self.compacted_history:
+                await self.storage.save_session(self.session_id, self.compacted_history)
+
             logger.info("Memory compaction completed successfully.")
 
         except Exception as e:
             logger.error(f"Failed to compact memory: {e}")
             # If compaction fails, we don't clear the scratchpad, we just hope it doesn't break the token limit yet.
+
+    async def save_state(self):
+        """Forces a save of the current compacted state to storage, e.g., on shutdown."""
+        if self.compacted_history:
+            await self.storage.save_session(self.session_id, self.compacted_history)
+            logger.info(f"Session {self.session_id} state saved.")
