@@ -32,10 +32,30 @@ class MockDriverForMemory(ModelDriver):
 def mock_driver():
     return MockDriverForMemory()
 
+from bolt.ports.storage import SessionStorage
+from bolt.core.schemas import AssistantMessage
+from typing import Optional
+
+class MockStorage(SessionStorage):
+    def __init__(self):
+        self.data = {}
+    async def initialize(self):
+        pass
+    async def save_session(self, session_id: str, compacted_history: AssistantMessage):
+        self.data[session_id] = compacted_history
+    async def load_session(self, session_id: str) -> Optional[AssistantMessage]:
+        return self.data.get(session_id)
+    async def close(self):
+        pass
+
 @pytest.fixture
-def memory_manager(mock_driver):
+def mock_storage():
+    return MockStorage()
+
+@pytest.fixture
+def memory_manager(mock_driver, mock_storage):
     budgeter = TokenBudgeter(max_context_window=1000) # Small budget for testing
-    return MemoryManager(budgeter=budgeter, driver=mock_driver)
+    return MemoryManager(budgeter=budgeter, driver=mock_driver, session_id="test_session", storage=mock_storage)
 
 
 def test_memory_add_message(memory_manager):
